@@ -107,7 +107,7 @@ class ClassRegister:
     def find_factory(self, locator):
         """Locates a factory given a locator."""
         self._raise_on_invalid_locator(locator)
-
+        # print("locator: ", locator)
         mod_name, _, name = locator.partition(":")
         if name != "":
             # There is a module component.
