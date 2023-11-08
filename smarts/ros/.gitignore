@@ -1,7 +1,11 @@
 # ROS and catkin
 /build/
 /devel/
-/install/
+/install/*
+!/install/**/smarts_ros/
+!/install/lib/smarts_ros/
+!/install/share/smarts_ros/
+
 cmake.lock
 *.cmake
 /src/CMakeLists.txt
@@ -9,3 +13,4 @@ cmake/
 gennodejs/
 common-lisp/
 roseus/
+

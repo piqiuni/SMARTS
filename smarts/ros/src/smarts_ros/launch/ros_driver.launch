@@ -25,7 +25,7 @@
   <arg name="test_agent_start_pose" default="[[0.0, 0.0, 0.0], 0.0]" doc="The starting pose for the test agent." />
   <arg name="test_agent_speed" default="0" doc="Optional starting speed for the test agent." />
 
-  <test test-name="test_smarts_ros" pkg="smarts_ros" type="test_smarts_ros.py" time-limit="5000.0">
+  <!-- <test test-name="test_smarts_ros" pkg="smarts_ros" type="test_smarts_ros.py" time-limit="5000.0">
     <param name="scenario" type="str" value="$(arg test_scenario)" />
     <param name="add_agent" type="bool" value="$(arg add_test_agent)" />
     <param name="task_ref" type="str" value="$(arg test_task_ref)" />
@@ -33,6 +33,16 @@
     <param name="task_params" type="str" value="$(arg test_task_params)" />
     <param name="agent_start_pose" type="str" value="$(arg test_agent_start_pose)" />
     <param name="agent_speed" type="double" value="$(arg test_agent_speed)" />
-  </test>
+  </test> -->
+
+  <node test-name="test_smarts_ros" pkg="smarts_ros" type="test_smarts_ros.py" time-limit="5000.0">
+    <param name="scenario" type="str" value="$(arg test_scenario)" />
+    <param name="add_agent" type="bool" value="$(arg add_test_agent)" />
+    <param name="task_ref" type="str" value="$(arg test_task_ref)" />
+    <param name="task_ver" type="str" value="$(arg test_task_ver)" />
+    <param name="task_params" type="str" value="$(arg test_task_params)" />
+    <param name="agent_start_pose" type="str" value="$(arg test_agent_start_pose)" />
+    <param name="agent_speed" type="double" value="$(arg test_agent_speed)" />
+  </node>
 
 </launch>

@@ -560,6 +560,7 @@ class SMARTS(ProviderManager):
         interface.
         """
         self._check_valid()
+        # print(f"provider:{provider}")
         assert isinstance(provider, Provider)
         provider.recovery_flags = recovery_flags
         self._provider_suite.insert(provider)

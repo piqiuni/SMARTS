@@ -57,6 +57,7 @@ class TestSmartsRos(TestCase):
         def_namespace: str = "SMARTS/",
         pub_queue_size: int = 10,
     ):
+        print(f"Set up the SMARTS ros test node....")
         """Set up the SMARTS ros test node."""
         rospy.init_node(node_name, anonymous=True)
 
@@ -82,6 +83,7 @@ class TestSmartsRos(TestCase):
         rospy.Subscriber(f"{namespace}reset", SmartsReset, self._reset_callback)
 
         service_name = f"{namespace}{node_name}_info"
+        print(f"Waiting for service {service_name}...")
         rospy.wait_for_service(service_name)
         self._smarts_info_srv = rospy.ServiceProxy(service_name, SmartsInfo)
         smarts_info = self._smarts_info_srv()
@@ -163,7 +165,8 @@ class TestSmartsRos(TestCase):
 
 if __name__ == "__main__":
     # import rostest
-    # rostest.rosrun(PKG, 'test_smarts_ros', TestSmartsRos)
+    # rostest.rosrun(PKG, 'test_smarts_ros', TestSmartsRos)]
+    print("in")
     tester = TestSmartsRos()
     tester.setup_ros()
     tester.run_forever()
