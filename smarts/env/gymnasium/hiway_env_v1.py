@@ -39,6 +39,7 @@ from smarts.core import current_seed
 from smarts.core import seed as smarts_seed
 from smarts.core.agent_interface import AgentInterface
 from smarts.core.local_traffic_provider import LocalTrafficProvider
+from smarts.core.road_map import RoadMap
 from smarts.core.scenario import Scenario
 from smarts.env.configs.hiway_env_configs import (
     EnvReturnMode,
@@ -509,3 +510,6 @@ class HiWayEnvV1(gym.Env):
             int: Environment seed.
         """
         return current_seed()
+    
+    def get_map(self)->RoadMap:
+        return self._smarts.scenario.road_map
