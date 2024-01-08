@@ -14,7 +14,32 @@ import rospy
 import threading
 from csts_msgs.msg import perception_prediction, prediction_traj, object_prediction, ego_state, map_lanes, lane
 from geometry_msgs.msg import Vector3
+import sys
+from pathlib import Path
+import time
+from typing import Dict, Final
 
+import gymnasium as gym
+
+
+AGENT_ID: Final[str] = "Agent"
+
+
+from smarts.core.road_map import RoadMap
+from smarts.core.sumo_road_network import SumoRoadNetwork
+from smarts.env.gymnasium.hiway_env_v1 import HiWayEnvV1
+from smarts.env.gymnasium.wrappers.single_agent import SingleAgent
+from smarts.env.utils.observation_conversion import ObservationOptions, ObservationSpacesFormatter
+
+SMARTS_REPO_PATH = Path(__file__).parents[2].absolute()
+sys.path.insert(0, str(SMARTS_REPO_PATH))
+from examples.tools.argument_parser import minimal_argument_parser
+from smarts.core.agent import Agent
+from smarts.core.agent_interface import AgentInterface, AgentType
+from smarts.core.controllers.action_space_type import ActionSpaceType
+from smarts.core.utils.episodes import episodes
+from smarts.sstudio.scenario_construction import build_scenarios
+from smarts.core.observations import Observation
 
 class CSTSAgent(Agent):
     def __init__(self, init_ros=True, planning=True):
@@ -47,6 +72,7 @@ class CSTSAgent(Agent):
         self.ego_state_msg_sub: ego_state = None
         self.receive_ego_state = False
         self.dt = 0.1
+        self.timestamp = 0
         
     def __del__(self):
         self.roslaunch_proc.terminate()
@@ -61,6 +87,7 @@ class CSTSAgent(Agent):
         self.receive_ego_state = True
     
     def act(self, obs, map:RoadMap):
+        print(f"timestamp: {self.timestamp}")
         # print(obs.keys(), )
         # dict_keys(['active', 'steps_completed', 'distance_travelled', 'ego_vehicle_state', 'events', 'drivable_area_grid_map', 'lidar_point_cloud', 'neighborhood_vehicle_states', 'occupancy_grid_map', 'top_down_rgb', 'waypoint_paths', 'signals'])
         
@@ -74,9 +101,9 @@ class CSTSAgent(Agent):
             ego["id"] = 0
             ego["road_id"] = None
                
-            print(f"ego before:{type(ego)}", end="")  
+            # print(f"ego before:{type(ego)}", end="")  
             ego = EgoVehicleObservation(**ego)  
-            print(f"after={type(ego)}")  
+            # print(f"after={type(ego)}")  
             
         objs = obs.get("neighborhood_vehicle_states")
         if not objs:
@@ -89,11 +116,23 @@ class CSTSAgent(Agent):
             # print(len(objs["bounding_box"]), type(objs["bounding_box"]))
             objs["road_id"] = np.ndarray([len_objs,1], str)
             
-            print(f"objs before:{type(objs)}", end="")  
+            # print(f"objs before:{type(objs)}", end="")  
+            
+            keys = objs.keys()
+            new_objs: Dict[str, VehicleObservation] = {}
+            for i in range(len(objs["id"])):
+                id = objs["id"][i]
+                if(id == ""):
+                    # print("empty")
+                    continue
+                obj = VehicleObservation(objs["id"][i], objs["position"][i], objs["speed"][i], objs["heading"][i], objs["bounding_box"][i], objs["lane_id"][i], objs["lane_index"][i], objs["road_id"][i])
+                box = objs["bounding_box"][i]
+                # print(f"i = {i}, obj_id: {id}, box: {box}, type: {type(obj)}")
+                new_objs[id] = obj
+            
             objs = VehicleObservation(**objs)
-            print(f"after={type(objs)}")
-            print(objs)
-            raise
+            # print(f"after={type(objs)}")
+            # raise
         
         self.ego_state_msg = self.get_ego_state(ego, map)
         self.map_lanes_msg = self.get_map_lanes(ego, map)
@@ -112,6 +151,7 @@ class CSTSAgent(Agent):
         
         dx, dy, dyaw = 0,0,0
         action = (dx, dy, dyaw)
+        self.timestamp += 1
         return action
     
     def const_v_action(self, obs):
@@ -146,3 +186,68 @@ class CSTSAgent(Agent):
         
         
         return action
+    
+    
+
+def main(scenarios, headless, num_episodes, max_episode_steps=None):
+    # This interface must match the action returned by the agent
+    agent_interface = AgentInterface.from_type(
+        AgentType.Full, 
+        max_episode_steps=max_episode_steps, 
+    )
+    # agent_interface.action = ActionSpaceType.Lane
+    agent_interface.action = ActionSpaceType.RelativeTargetPose   
+    
+    agent_interfaces = {AGENT_ID: agent_interface}
+    env:HiWayEnvV1 = gym.make(
+        "smarts.env:hiway-v1",
+        scenarios=scenarios,
+        agent_interfaces=agent_interfaces,
+        headless=headless,
+    )
+    
+    env.observation_space = ObservationOptions.multi_agent
+    
+    env = SingleAgent(env)
+    
+    for episode in episodes(n=num_episodes):
+        agent = CSTSAgent(True, False)
+        # agent = KeepLaneAgent()
+        observation, _ = env.reset()
+        episode.record_scenario(env.unwrapped.scenario_log)
+
+        map = env.get_map()
+        terminated = False
+        while not terminated:
+            # print(type(observation))
+            # obs = observation.get(AGENT_ID)
+            # if(obs is None):
+            #     break
+            
+            action = agent.act(observation, map)
+            
+            # action = {AGENT_ID: action}
+            observation, reward, terminated, truncated, info = env.step(action)
+            episode.record_step(observation, reward, terminated, truncated, info)
+
+    env.close()
+
+
+if __name__ == "__main__":
+    parser = minimal_argument_parser(Path(__file__).stem)
+    args = parser.parse_args()
+
+    if not args.scenarios:
+        args.scenarios = [
+            str(SMARTS_REPO_PATH / "scenarios" / "sumo" / "loop"),
+            str(SMARTS_REPO_PATH / "scenarios" / "sumo" / "figure_eight"),
+        ]
+
+    build_scenarios(scenarios=args.scenarios)
+
+    main(
+        scenarios=args.scenarios,
+        headless=args.headless,
+        num_episodes=args.episodes,
+        max_episode_steps=args.max_episode_steps,
+    )

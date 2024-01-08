@@ -48,6 +48,7 @@ def main(scenarios, headless, num_episodes, max_episode_steps=None):
     env:HiWayEnvV1 = gym.make(
         "smarts.env:hiway-v1",
         scenarios=scenarios,
+        seed = 1,
         agent_interfaces=agent_interfaces,
         headless=headless,
     )
@@ -57,7 +58,7 @@ def main(scenarios, headless, num_episodes, max_episode_steps=None):
     env = SingleAgent(env)
     
     for episode in episodes(n=num_episodes):
-        agent = CSTSAgent()
+        agent = CSTSAgent(True, True)
         # agent = KeepLaneAgent()
         observation, _ = env.reset()
         episode.record_scenario(env.unwrapped.scenario_log)
@@ -65,7 +66,7 @@ def main(scenarios, headless, num_episodes, max_episode_steps=None):
         map = env.get_map()
         terminated = False
         while not terminated:
-            print(type(observation))
+            # print(type(observation))
             # obs = observation.get(AGENT_ID)
             # if(obs is None):
             #     break
