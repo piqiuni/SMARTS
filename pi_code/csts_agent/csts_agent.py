@@ -22,7 +22,7 @@ from collections import namedtuple
 
 Pt=namedtuple("Pt", ["x", "y", "t", "yaw", "v", "a"])
 class CSTSAgent(Agent):
-    def __init__(self, init_ros=True, planning=True):
+    def __init__(self, init_ros=True, planning=True, roslaunch=True):
         self.action_type = ActionSpaceType.RelativeTargetPose
         if init_ros:
             rospy.init_node('csts_agent', anonymous=True)
@@ -41,14 +41,15 @@ class CSTSAgent(Agent):
         self.perception_prediction_msg = perception_prediction()
 
         self.spin_thread = threading.Thread(target=self.thread_job)
-        self.roslaunch_cmd = "roslaunch contingency_st_search test_search.launch"
-
+        if(roslaunch):
+            self.roslaunch_cmd = "roslaunch contingency_st_search test_search.launch"
+        else:
+            self.roslaunch_cmd = "ls"
+        
         self.planning = planning
         if self.planning:
-            self.roslaunch_proc = subprocess.Popen(
-                "ls", stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-            # self.roslaunch_proc = subprocess.Popen(self.roslaunch_cmd.split(
-            #     ), stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            self.roslaunch_proc = subprocess.Popen(self.roslaunch_cmd.split(
+                ), stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         else:
             self.roslaunch_proc = subprocess.Popen(
                 "ls", stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
@@ -70,6 +71,7 @@ class CSTSAgent(Agent):
 
     def __del__(self):
         self.roslaunch_proc.terminate()
+        rospy.signal_shutdown("csts_agent shutdown")
 
     def thread_job(self):
         rospy.spin()
@@ -81,7 +83,8 @@ class CSTSAgent(Agent):
         self.receive_ego_state = True
 
     def act(self, obs, map: RoadMap):
-        print(f"timestamp: {self.timestamp}")
+        print(f"timestamp: {self.timestamp}", end="")
+        start_time = rospy.get_time()
         # print(obs.keys(), )
         # dict_keys(['active', 'steps_completed', 'distance_travelled', 'ego_vehicle_state', 'events', 'drivable_area_grid_map', 'lidar_point_cloud', 'neighborhood_vehicle_states', 'occupancy_grid_map', 'top_down_rgb', 'waypoint_paths', 'signals'])
 
@@ -136,18 +139,28 @@ class CSTSAgent(Agent):
         self.perception_prediction_msg = self.get_pp(new_objs, map)
 
         self.publish_all()
+        # raise
+        wait_start_time = rospy.get_time()
         if self.planning:
             while (self.receive_ego_state == False and rospy.is_shutdown() == False):
+                t_now = rospy.get_time()
+                t_cost = t_now - wait_start_time
+                if(t_cost > 5):
+                    rospy.logwarn("wait for planning callback for more than 5s")
+                    return False
                 continue
         else:
             rospy.sleep(0.1)
+            # input("press enter to continue")
+            
         if self.planning:
             action = self.get_action(self.ego_state_msg_sub)
         else:
             action = self.const_v_action()
-        print(action)
         self.timestamp += 1
         self.receive_ego_state = False
+        end_time = rospy.get_time()
+        print(f"; action:({action[0]:.2f},{action[1]:.2f},{action[2]:.2f}), timecost_ms:{(end_time-start_time)*1000:.1f}")
         return action
 
 
@@ -254,14 +267,15 @@ class CSTSAgent(Agent):
                 lane_list.append(lane_list[-1].outgoing_lanes[0])
                 length_list.append(lane_list[-1].length)
             # print(f"lane_list: {[lane_list[i].lane_id for i in range(len(lane_list))]}" )
-            # print(f"sum_length: {sum(length_list)}, length: {length_list}")
+            # print(f"ego_lane_coord.s: {ego_lane_coord.s}, sum_length: {sum(length_list)}, length: {length_list}, distance: {distance}")
             
             index = 0
             way_pt_list = list()
             vector3_list = list()
-            for s in range (0, distance, 1):
+            for s in range (0, forward_distance, 1):
                 if s > sum(length_list[:index+1]):
                     index += 1
+                # print(s, sum(length_list[:index]), index, forward_distance)
                 waypt = lane_list[index].from_lane_coord(RefLinePoint(s-sum(length_list[:index])))
                 way_pt_list.append(waypt)
                 vector3_list.append(Vector3(waypt.x, waypt.y, waypt.z))
@@ -306,9 +320,12 @@ class CSTSAgent(Agent):
                          L_ahead, 1.0) if alpha != 0 else 0
         return delta
     
-    def path_predict(self, obs_state: VehicleObservation, obs_lane: RoadMap.Lane, map: RoadMap):
+    def path_predict(self, obs_state: VehicleObservation, obs_lanes: List[RoadMap.Lane], map: RoadMap):
         follow_path = []
         # collision_check_xytyaw_list = []
+        assert len(obs_lanes)>0
+        obs_lane=obs_lanes[0]
+        lane_it=iter(obs_lanes)
 
         s_now = obs_lane.to_lane_coord(Point(obs_state.position[0],obs_state.position[1]))
         
@@ -324,24 +341,29 @@ class CSTSAgent(Agent):
         # collision_check_xytyaw_list.append([x_now, y_now, 0.0, yaw_now])
 
         delta_i = 1
-        for i in np.arange(delta_i, 51, delta_i):# 前瞻50点
-            time_now = i * 0.1
-            track_dis = obs_state.speed * 1.5
-            track_pt = obs_lane.from_lane_coord(RefLinePoint(s_now.s + track_dis))
-            d_angle = np.arctan2(track_pt.y - y_now, track_pt.x - x_now)
-            delta = self.cal_pure_pursuit(yaw_now, d_angle, track_dis)
-            a_now = max(break_acc, a_now - max_jerk * delta_i / 10)
+        try:
+            for i in np.arange(delta_i, 51, delta_i):# 前瞻50点
+                time_now = i * 0.1
+                track_dis = obs_state.speed * 0.3
+                if s_now.s + track_dis>obs_lane.length:
+                    obs_lane=next(lane_it)
+                track_pt = obs_lane.from_lane_coord(RefLinePoint(s_now.s + track_dis))
+                d_angle = np.arctan2(track_pt.y - y_now, track_pt.x - x_now)
+                delta = self.cal_pure_pursuit(yaw_now, d_angle, track_dis)
+                a_now = max(break_acc, a_now - max_jerk * delta_i / 10)
 
-            next_xyyawva = self.step_vehicle_model(Pt(
-                x_now, y_now, time_now,yaw_now, v_now, a_now), delta, delta_i / 10)
+                next_xyyawva = self.step_vehicle_model(Pt(
+                    x_now, y_now, time_now,yaw_now, v_now, a_now), delta, delta_i / 10)
 
-            x_now, y_now, time_now, yaw_now, v_now, a_now = next_xyyawva
-            s_now = obs_lane.to_lane_coord(Point(x_now, y_now, 0))
-            follow_path.append(Pt(x_now, y_now, time_now, yaw_now, v_now, 0))
+                x_now, y_now, time_now, yaw_now, v_now, a_now = next_xyyawva
+                s_now = obs_lane.to_lane_coord(Point(x_now, y_now, 0))
+                follow_path.append(Pt(x_now, y_now, time_now, yaw_now, v_now, 0))
 
-            # if i % 5 == 0:
-                # collision_check_xytyaw_list.append(
-                    # [x_now, y_now, time_now, yaw_now])
+                # if i % 5 == 0:
+                    # collision_check_xytyaw_list.append(
+                        # [x_now, y_now, time_now, yaw_now])
+        except StopIteration:
+            pass
 
         return follow_path#, collision_check_xytyaw_list
     
@@ -351,10 +373,17 @@ class CSTSAgent(Agent):
         return self.obj_id_to_idx_dict[obj_id]
 
     def get_pp(self, objs: Dict[str, VehicleObservation], map: RoadMap):
-        def get_traj(obj,lane,map):
+        def get_traj(obj: VehicleObservation, lane: RoadMap.Lane, map: RoadMap):
             traj = prediction_traj()
+            lanes=[]
+            while True:
+                lanes.append(lane)
+                lane_list=lane.outgoing_lanes
+                if len(lane_list) is 0:
+                    break
+                lane=lane_list[0]
             follow_path: list[Pt] = self.path_predict(
-                obj, lane, map)
+                obj, lanes, map)
             for pt in follow_path:
                 traj.predicted_traj_xyt.append(Vector3(pt.x, pt.y, pt.t))
                 traj.predicted_traj_yawva.append(Vector3(pt.yaw, pt.v, pt.a))
@@ -382,16 +411,17 @@ class CSTSAgent(Agent):
             # this_lane = map.lane_by_id(objs[obj_id].lane_id)
             this_lane = map.nearest_lane(
                 Point(objs[obj_id].position[0], objs[obj_id].position[1], objs[obj_id].position[2]))
-            left_lane = this_lane.lane_to_left
-            right_lane = this_lane.lane_to_right
 
             msg.prediction_trajs.append(get_traj(objs[obj_id],this_lane,map))
-            if left_lane[1] and (type(left_lane[0]) is not type(None)):
-                msg.prediction_trajs.append(
-                    get_traj(objs[obj_id], left_lane[0], map))
-            if right_lane[1] and (type(right_lane[0]) is not type(None)):
-                msg.prediction_trajs.append(
-                    get_traj(objs[obj_id], right_lane[0], map))
+            
+            # left_lane = this_lane.lane_to_left
+            # right_lane = this_lane.lane_to_right
+            # if left_lane[1] and type(left_lane[0]):
+            #     msg.prediction_trajs.append(
+            #         get_traj(objs[obj_id], left_lane[0], map))
+            # if right_lane[1] and type(right_lane[0]):
+            #     msg.prediction_trajs.append(
+            #         get_traj(objs[obj_id], right_lane[0], map))
             
             # msg.lane_coord
             
