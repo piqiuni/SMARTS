@@ -151,7 +151,7 @@ class CSTSAgent(Agent):
                 continue
         else:
             rospy.sleep(0.1)
-            # input("press enter to continue")
+            input("press enter to continue")
             
         if self.planning:
             action = self.get_action(self.ego_state_msg_sub)
@@ -384,10 +384,24 @@ class CSTSAgent(Agent):
                 lane=lane_list[0]
             follow_path: list[Pt] = self.path_predict(
                 obj, lanes, map)
+            
+            horizontal_diff = lane.to_lane_coord(
+                Point(obj.position[0], obj.position[1], obj.position[2]))#成员t：右正左负
+            lane_heading=lane.vector_at_offset(horizontal_diff.s)
+            lane_heading=np.arctan2(lane_heading[1],lane_heading[0])
+            angular_diff=obj.heading-lane_heading
+            while angular_diff > np.pi:
+                angular_diff = angular_diff-2*np.pi
+            while angular_diff < -np.pi:
+                angular_diff = angular_diff+2*np.pi#angular_diff逆时针为正
+            ref_distance=5
+            ref_diff = ref_distance*np.tan(angular_diff)#沿车道行进5米后当前航向对应的横向偏差，左正右负
+            prob_eval = ref_diff+horizontal_diff.t
+            traj.prediction_probability = prob_eval
+            
             for pt in follow_path:
                 traj.predicted_traj_xyt.append(Vector3(pt.x, pt.y, pt.t))
                 traj.predicted_traj_yawva.append(Vector3(pt.yaw, pt.v, pt.a))
-                traj.prediction_probability = 0.33
             return traj
         
         msgs = self.perception_prediction_msg
@@ -411,20 +425,32 @@ class CSTSAgent(Agent):
             # this_lane = map.lane_by_id(objs[obj_id].lane_id)
             this_lane = map.nearest_lane(
                 Point(objs[obj_id].position[0], objs[obj_id].position[1], objs[obj_id].position[2]))
-
+            
             msg.prediction_trajs.append(get_traj(objs[obj_id],this_lane,map))
             
-            # left_lane = this_lane.lane_to_left
-            # right_lane = this_lane.lane_to_right
-            # if left_lane[1] and type(left_lane[0]):
-            #     msg.prediction_trajs.append(
-            #         get_traj(objs[obj_id], left_lane[0], map))
-            # if right_lane[1] and type(right_lane[0]):
-            #     msg.prediction_trajs.append(
-            #         get_traj(objs[obj_id], right_lane[0], map))
+            left_lane = this_lane.lane_to_left
+            right_lane = this_lane.lane_to_right
+            if left_lane[1] and left_lane[0] is not None:
+                left_traj = get_traj(objs[obj_id], left_lane[0], map)
+                
+                msg.prediction_trajs.append(left_traj)
+                
+            if right_lane[1] and right_lane[0] is not None:
+                right_traj = get_traj(objs[obj_id], right_lane[0], map)
+                msg.prediction_trajs.append(right_traj)
+                
+            prob_list=[]
+            for traj in msg.prediction_trajs:
+                prob_list.append(traj.prediction_probability)
+            # Calculate weights inversely proportional to the absolute value
+            prob_array=np.array(prob_list,dtype=np.float64)
+            weights = np.exp2(-5-np.abs(prob_array))
+            # Normalize weights to sum to 1
+            normalized_prob = weights / np.sum(weights)
             
-            # msg.lane_coord
-            
+            for idx in range(len(msg.prediction_trajs)):
+                msg.prediction_trajs[idx].prediction_probability = normalized_prob[idx]
+                msg.prediction_trajs[idx].mode_id=idx
             msgs.object_predictions.append(msg)
         return msgs
 
