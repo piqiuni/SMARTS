@@ -48,7 +48,7 @@ def main(scenarios, headless, num_episodes, max_episode_steps=None):
     env:HiWayEnvV1 = gym.make(
         "smarts.env:hiway-v1",
         scenarios=scenarios,
-        seed = 1,
+        seed = 10,
         agent_interfaces=agent_interfaces,
         headless=headless,
     )
@@ -58,7 +58,7 @@ def main(scenarios, headless, num_episodes, max_episode_steps=None):
     env = SingleAgent(env)
     
     for episode in episodes(n=num_episodes):
-        agent = CSTSAgent(True, True)
+        agent = CSTSAgent(True, False)
         # agent = KeepLaneAgent()
         observation, _ = env.reset()
         episode.record_scenario(env.unwrapped.scenario_log)
@@ -72,6 +72,8 @@ def main(scenarios, headless, num_episodes, max_episode_steps=None):
             #     break
             
             action = agent.act(observation, map)
+            if(action == False):
+                break
             
             # action = {AGENT_ID: action}
             observation, reward, terminated, truncated, info = env.step(action)
@@ -86,9 +88,11 @@ if __name__ == "__main__":
 
     if not args.scenarios:
         args.scenarios = [
-            str(SMARTS_REPO_PATH / "scenarios" / "sumo" / "loop"),
-            str(SMARTS_REPO_PATH / "scenarios" / "sumo" / "figure_eight"),
+            "scenarios/sumo/straight/3lane_cut_in_agents_1/", 
+            # str(SMARTS_REPO_PATH / "scenarios" / "sumo" / "loop"),
+            # str(SMARTS_REPO_PATH / "scenarios" / "sumo" / "figure_eight"),
         ]
+    args.max_episode_steps = 200
 
     build_scenarios(scenarios=args.scenarios)
 

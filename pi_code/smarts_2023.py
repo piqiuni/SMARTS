@@ -40,7 +40,7 @@ def main(scenarios, headless, num_episodes, max_episode_steps=None):
 
     env = driving_smarts_2023_env(
         scenario=scenarios[0],
-        seed = 11,
+        seed = 15,
         agent_interface=agent_interface,
         headless=headless,
     )
@@ -49,7 +49,7 @@ def main(scenarios, headless, num_episodes, max_episode_steps=None):
     
     for episode in episodes(n=num_episodes):
         # agent = KeepLaneAgent()
-        agent= CSTSAgent()
+        agent= CSTSAgent(True, True, False)
         observation, _ = env.reset()
         episode.record_scenario(env.unwrapped.scenario_log)
 
@@ -59,6 +59,8 @@ def main(scenarios, headless, num_episodes, max_episode_steps=None):
             # obs = observation[AGENT_ID]
             action = agent.act(observation, map)
             # action = {AGENT_ID: action}
+            if(action == False):
+                break
             observation, reward, terminated, truncated, info = env.step(action)
             episode.record_step(observation, reward, terminated, truncated, info)
 
@@ -72,10 +74,11 @@ if __name__ == "__main__":
     if not args.scenarios:
         args.scenarios = [
             "scenarios/sumo/straight/3lane_cut_in_agents_1/", 
-            "scenarios/sumo/straight/cutin_2lane_agents_1/",
+            # "scenarios/sumo/straight/cutin_2lane_agents_1/",
             # str(SMARTS_REPO_PATH / "scenarios" / "sumo" / "loop"),
             # str(SMARTS_REPO_PATH / "scenarios" / "sumo" / "figure_eight"),
         ]
+    args.max_episode_steps = 200
 
     build_scenarios(scenarios=args.scenarios)
    
