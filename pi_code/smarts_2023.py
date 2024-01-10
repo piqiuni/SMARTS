@@ -1,13 +1,9 @@
 """This example shows how you might run a SMARTS environment for single-agent work. SMARTS is
 natively multi-agent so a single-agent wrapper is used."""
-import argparse
-import random
 import sys
 from pathlib import Path
 import time
 from typing import Final
-
-import gymnasium as gym
 
 SMARTS_REPO_PATH = Path(__file__).parents[1].absolute()
 sys.path.insert(0, str(SMARTS_REPO_PATH))
@@ -40,7 +36,7 @@ def main(scenarios, headless, num_episodes, max_episode_steps=None):
 
     env = driving_smarts_2023_env(
         scenario=scenarios[0],
-        seed = 15,
+        seed = 13,
         agent_interface=agent_interface,
         headless=headless,
     )
@@ -73,8 +69,8 @@ if __name__ == "__main__":
 
     if not args.scenarios:
         args.scenarios = [
-            "scenarios/sumo/straight/3lane_cut_in_agents_1/", 
-            # "scenarios/sumo/straight/cutin_2lane_agents_1/",
+            # "scenarios/sumo/straight/3lane_cut_in_agents_1/", 
+            "scenarios/sumo/straight/cutin_2lane_agents_1/",
             # str(SMARTS_REPO_PATH / "scenarios" / "sumo" / "loop"),
             # str(SMARTS_REPO_PATH / "scenarios" / "sumo" / "figure_eight"),
         ]

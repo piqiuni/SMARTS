@@ -3,264 +3,239 @@
 import contextlib
 import pickle
 import time
-from tracemalloc import start
-from turtle import st
 from typing import Tuple
 
 import yaml
+from pi_code.csts_agent.csts_agent import CSTSAgent
 
 import rospy
 import os
 import sys
-
+from pathlib import Path
+from typing import List
 
 sys.path.append(os.path.dirname(sys.path[0]))
 from tqdm import tqdm
 
 import subprocess
 
+from testing.testing_function import Drive_Test, Data_Struct, Car_Struct, PlannedPt, ReadLog
+
+SMARTS_REPO_PATH = Path(__file__).parents[1].absolute()
+sys.path.insert(0, str(SMARTS_REPO_PATH))
+from examples.tools.argument_parser import minimal_argument_parser
+from smarts.core.agent import Agent
+from smarts.core.agent_interface import AgentInterface, AgentType
+from smarts.core.controllers.action_space_type import ActionSpaceType
+from smarts.core.utils.episodes import episodes
+from smarts.env.gymnasium.driving_smarts_2023_env import driving_smarts_2023_env
+from smarts.env.gymnasium.wrappers.single_agent import SingleAgent
+from smarts.sstudio.scenario_construction import build_scenarios
+from smarts.core.road_map import RoadMap
+
 dt = 0.1
 
-
-
-def get_data(sim:ScenarioSimulation, data_frame:OneFrame, pred_dict:Dict)-> Tuple[Car_Struct,  List[Car_Struct]]:
-    x = data_frame.ego_state.obj_x_relative
-    y = data_frame.ego_state.obj_y_relative
-    yaw = data_frame.ego_state.obj_theta_map
-    v = sim.map_state.v
-    a = sim.map_state.a
-    j = sim.map_state.j
-    length = data_frame.ego_state.length
-    width = data_frame.ego_state.width
-    lane_id = data_frame.ego_state.lane_id
-    ego_state = Car_Struct(0, 0, x,y,yaw,v,a,j,length,width,lane_id)
-    social_states = []
-    for key, value in data_frame.objects.items():
-        if math.sqrt((value.obj_x_relative - x)**2 + (value.obj_y_relative - y)**2) > 100:
-            continue
-        
-        state = Car_Struct(key, value.obj_class, value.obj_x_relative, value.obj_y_relative, value.obj_heading_relative, value.obj_v_map, 0,0,value.length,value.width)
-        
-        pred = pred_dict.get(key, None)
-        if pred:
-            probs, paths = list(zip(*pred))
-            transfered_paths = []
-            for path in paths:
-                path_pts = []
-                for pt in path:
-                    new_pt, yaw, _ = sim.transfer.from_map_to_dataset((pt[0], pt[1]), pt[2])
-                    if len(pt) == 5:
-                        path_pts.append((new_pt[0], new_pt[1], yaw, pt[3], pt[4]))
-                    else:
-                        path_pts.append((new_pt[0], new_pt[1], yaw))
-                transfered_paths.append(path_pts)
-            state.add_pred(transfered_paths, probs)
-        social_states.append(state)
+# TODO: 从agent和map中获取数据，填充ego_state, social_states, ego_planning
+def get_data(agent:CSTSAgent, map: RoadMap)-> Tuple[Car_Struct,  List[Car_Struct], List[PlannedPt]]:
+    ego_state: Car_Struct = None
+    social_states: List[Car_Struct] = []
+    ego_planning: List[PlannedPt] = []
     
-    return ego_state, social_states
+    
+    
+    
+    # x = data_frame.ego_state.obj_x_relative
+    # y = data_frame.ego_state.obj_y_relative
+    # yaw = data_frame.ego_state.obj_theta_map
+    # v = sim.map_state.v
+    # a = sim.map_state.a
+    # j = sim.map_state.j
+    # length = data_frame.ego_state.length
+    # width = data_frame.ego_state.width
+    # lane_id = data_frame.ego_state.lane_id
+    # ego_state = Car_Struct(0, 0, x,y,yaw,v,a,j,length,width,lane_id)
+    # social_states = []
+    # for key, value in data_frame.objects.items():
+    #     if math.sqrt((value.obj_x_relative - x)**2 + (value.obj_y_relative - y)**2) > 100:
+    #         continue
+        
+    #     state = Car_Struct(key, value.obj_class, value.obj_x_relative, value.obj_y_relative, value.obj_heading_relative, value.obj_v_map, 0,0,value.length,value.width)
+        
+    #     pred = pred_dict.get(key, None)
+    #     if pred:
+    #         probs, paths = list(zip(*pred))
+    #         transfered_paths = []
+    #         for path in paths:
+    #             path_pts = []
+    #             for pt in path:
+    #                 new_pt, yaw, _ = sim.transfer.from_map_to_dataset((pt[0], pt[1]), pt[2])
+    #                 if len(pt) == 5:
+    #                     path_pts.append((new_pt[0], new_pt[1], yaw, pt[3], pt[4]))
+    #                 else:
+    #                     path_pts.append((new_pt[0], new_pt[1], yaw))
+    #             transfered_paths.append(path_pts)
+    #         state.add_pred(transfered_paths, probs)
+    #     social_states.append(state)
+    
+    
+    return ego_state, social_states, ego_planning
 
 
 
 if __name__ == "__main__":
-    # ./testing_run.py --case_name case_0706 --get_videos
-    data_folder_absolute_path = '/home/rancho/2-ldl/Huawei-dataset/DATA'
+    
     log_folder_absolute_path = '/home/rancho/2-ldl/Huawei-dataset/LOG'
-    # case_name = 'case_0901' 
-    parser = argparse.ArgumentParser()
-    choices=['case_old', 'case_0601', 'case_0706', 'case_0901', 'case_gen']
-    parser.add_argument("--case_name", type=str, choices=choices, required=True, help="case_name", )
-    parser.add_argument('--get_videos', action='store_true', default=False, help='get_videos')
-    args = parser.parse_args()
-    case_name = args.case_name
-    get_videos = args.get_videos
-    
-    # case_name = ''
-    
-    if case_name == 'case_gen':
-        # except_case = 'case1'
-        except_case = 'case2'
-        record_max_frame = 130
-        if except_case == 'case1': # case2 -> Change Lane
-            start_speeds = [20/3.6]
-            start_frames = [30]
-        elif except_case == 'case2': # case1 -> Left Turn
-            start_speeds = np.array([15, 12, 18, 20, 10]) / 3.6
-            start_frames = [40, 40, 40, 30, 50]
-    else:
-        start_speeds = [None]
-        start_frames = [None]
-        except_case = 'nonono'
-        record_max_frame = None
+    envision_record_data_replay_path = None
+    case_name = "SMARTS"
+    get_videos = True
     
     
+    record_max_frame = None
     
-    if len(start_speeds) != len(start_frames):
-        raise ValueError("start_speeds and start_frames should have the same length")
-    
-    
-    case_folder_absolute_path = data_folder_absolute_path + '/' + case_name
-    full_file_names = [f for f in os.listdir(case_folder_absolute_path) if 
-                  (os.path.isfile(os.path.join(case_folder_absolute_path, f)) and not f.endswith(('.yaml', '.md')))]
-    if case_name == 'case_old':
-        full_file_names = old_case_file_names
-        # print(file_names)
-    file_names = [name for name in full_file_names if except_case not in name]
-    print(f"Testing start, with {len(start_speeds)} runs, {len(file_names)} scenarios")
-    
-    # test_scenes = [[a,b,c] for b,c in zip(start_speeds, start_frames) for a in file_names]
-    test_scenes = [[a,b,c] for a in file_names for b,c in zip(start_speeds, start_frames) ]
-    # [(name, speed, frame)]
-    print(f"test_scenes: ")
-    for item in test_scenes:
-        print(f"\t{item}")
-    record_bag = None
     Display = False
     RCV_State = True
     start_flag = False
     
-    PredModel, use_map_config = get_case_config(case_folder_absolute_path)
     rospy.init_node("sim_testing", anonymous=True)
-    # init record class
+    
     drive_test = Drive_Test(log_folder_absolute_path, case_name)
     test_start_time = time.time()
-    # s2p = State2PtcloudNew()
-    s2p = "000"
+    
     fail_list = []
     count = 0 
+
+    testing_cases = ["scenarios/sumo/straight/3lane_cut_in_agents_1/", 
+                     "scenarios/sumo/straight/cutin_2lane_agents_1/"]
+    testing_nums = [5, 5]
+    start_seed = 10
+    save_senario_num = 100
     
-    for i in tqdm(range(0, len(test_scenes))):
-    # for i in tqdm(range(12, 13)):
-        scene_name, start_speed, start_frame = test_scenes[i]
-        scene_number = full_file_names.index(scene_name)
+    parser = minimal_argument_parser(Path(__file__).stem)
+    max_episode_steps = 200
+    agent_interface = AgentInterface.from_type(
+        AgentType.Full, 
+        action = ActionSpaceType.RelativeTargetPose,
+        max_episode_steps=max_episode_steps, 
+    )
+    
+    
+    
+    
+    max_no_social_vehicle_count = 20
+    seed = start_seed
+    saving_count = 0
+    testing_cases_index = 0
+    with tqdm(total=save_senario_num) as pbar:
         
-        # if scene_number not in [9, 10, 11, 13, 18, 20, 27, 34, 36]:
-        #     continue
-
-        # print(f"Testing scene {scene_name}, {scene_number}")
-        start_speed_str = f"{(start_speed*3.6):.1f}km/h" if start_speed is not None else 'Ego speed'
-        start_frame_str = f"{start_frame}" if start_frame is not None else '0'
-        # print(f"Start speed: {start_speed_str}, start frame: {start_frame_str}")
-            
-        if use_map_config:
-            map_config = get_map_param(case_folder_absolute_path, scene_number)
-        else:
-            map_config = MapConfig()
-        # map_config.use_ego_path = False
-        if start_speed:
-            map_config.start_speed = start_speed
-        if start_frame:
-            map_config.start_frame = start_frame
+        while(testing_cases_index < len(testing_cases)):
+            case = testing_cases[testing_cases_index]
+            num_episodes = testing_nums[testing_cases_index]
         
-        result = 'Break'
-        scene_count = 0
-        while result == 'Break' and scene_count < 5:
-            
-            scene_count += 1
-            # start launch file
-            if CSTS:
-                roslaunch_cmd = "roslaunch contingency_st_search test_search.launch"
-            else:
-                roslaunch_cmd = "roslaunch hybrid_A_search testing_launch.launch"
-            roslaunch_proc = subprocess.Popen(roslaunch_cmd.split(), stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)        
-            # roslaunch_proc = subprocess.Popen(roslaunch_cmd.split())
-            rospy.sleep(1)
-            state = True
-            with contextlib.redirect_stdout(None):
-                sim = ScenarioSimulation(s2p, False, False)
-                sim.get_files(scene_name, scene_number, case_folder_absolute_path)
-                sim.init_flags(Display, PredModel, RCV_State)
-                Succsee, state_str = sim.init_config(map_config, None, 60/3.6)
-                
-            if not Succsee:
-                print(f"scene {scene_number} failed, skip, :{state_str}")
-                result = 'Continue'
-                continue
-            
-            with contextlib.redirect_stdout(None):
-                rospy.sleep(1)
-                sim.start_sim()
-
-            # start Record RosBag
-            drive_test.new_scene(scene_number, scene_name, sim.start_frame, sim.max_frame+1, sim.map_state.v)  
-            root_path = os.path.join(drive_test.root_dir, drive_test.log_dir)
-            # record_bag = RecordRosbag(root_path, scene_name)
-            
-            # for rosbag
-            # rospy.Subscriber("/best_path", Path, RecordCallback, ("/best_path", record_bag))
-            # rospy.Subscriber("/map", PointCloud2, RecordCallback, ("/map", record_bag))
-            # rospy.Subscriber("/goals", PointCloud2, RecordCallback, ("/goals", record_bag))
-            # rospy.Subscriber("/grid_path_vis", MarkerArray, RecordCallback, ("/grid_path_vis", record_bag))
-            # rospy.Subscriber("/ref_path", Path, RecordCallback, ("/ref_path", record_bag))
-            # if start_flag == False:
-            #     spin_thread.start()
-            #     start_flag = True
-            
-            # print(sim.all_route_ids)
-            # print(sim.all_routes)
-            for key, route in zip(sim.all_route_ids, sim.all_routes):
-                drive_test.add_lane(key, route.points)
-                
-            # if except_case == 'case1':
-            #     max_time = start_frame + 100
-            end_flag = 0
-            timestamp = 0
-            for timestamp in tqdm(range(sim.start_frame, sim.max_frame+1)):
-                print(timestamp)
-                start_frame_time = time.time()
-                while(sim.got_best_path == False and not rospy.is_shutdown()):
-                    time_cost = time.time() - start_frame_time
-                    if time_cost > 10:
-                        end_flag = 1
-                        break
-                if end_flag == 1:
-                    break
-
+            env = driving_smarts_2023_env(
+                scenario=case,
+                seed = seed,
+                agent_interface=agent_interface,
+                envision_record_data_replay_path=envision_record_data_replay_path
+            )
+            env = SingleAgent(env)
+            scene_name = case.split('/')[-2]
+            scene_number = 0
+            for episode in episodes(n=num_episodes):
+                timestamp = 0
                 with contextlib.redirect_stdout(None):
-                    data_frame, pred_dict = sim.run_once()
-                
-                # data_frame = data_dict[timestamp]
-                ego_state, social_states = get_data(sim, data_frame, pred_dict)
-                drive_test.push_this_frame(timestamp, ego_state, social_states, sim.draw_best_path_pts)
-                
-                sim.got_best_path = False
-            # end 
-            
-            # close launch run
-            roslaunch_proc.terminate()
-            rospy.sleep(3)
-            
-            # # end bag record and data record
-            # record_bag.save_rosbag()
-            # record_bag = None
-            
-            if len(drive_test.data.collision_frame) != 0:
-                if(drive_test.data.collision_frame[0][1] == 'backward'):
-                    result = 'Backward Collision'
-                # print(drive_test.last_collision_id)
-                else:
-                    result = 'Collision'
-            elif timestamp == sim.max_frame:
-                result = 'Over'
-            else:
-                if timestamp - sim.start_frame < 5:
-                    # fail_list.append(scene_number)
+                    agent= CSTSAgent(False, True, False)
+                    observation, _ = env.reset()
+                    episode.record_scenario(env.unwrapped.scenario_log)
+                    
+                    drive_test.new_scene(saving_count, scene_name, 0, max_episode_steps, )  
+                    root_path = os.path.join(drive_test.root_dir, drive_test.log_dir)
                     result = 'Break'
-                    print("scene {}th break at start, restart".format(scene_number))
-                else:
+
+                    map = env.get_map()
+                    
+                    # TODO: drive_test.add_lane 添加车道，每次添加一条
+                    # 参考
+                    with 1:
+                        key = 0
+                        points= [(0, 0), (0, 1000)]
+                        drive_test.add_lane(key, points)
+                    
+                    terminated = False
+                    no_social_vehicle_count = 0
+                    while (not terminated) and not (rospy.is_shutdown()) :
+                        # obs = observation[AGENT_ID]
+                        action = agent.act(observation, map)
+                        # action = {AGENT_ID: action}
+                        
+                        # TODO: 获取flag，自车行驶到了车道末端，或者没有社会车辆
+                        no_social_vehicle_flag, end_of_lane_flag = agent.
+                        
+                        ego_state, social_states, ego_planning = get_data(agent)
+                        
+                        drive_test.push_this_frame(timestamp, ego_state, social_states, ego_planning)
+                        
+                        timestamp += 1
+                        if(action == False):
+                            break
+                        observation, reward, terminated, truncated, info = env.step(action)
+                        episode.record_step(observation, reward, terminated, truncated, info)
+                        
+                        if no_social_vehicle_flag:
+                            no_social_vehicle_count += 1
+                            if no_social_vehicle_count > max_no_social_vehicle_count:
+                                result = 'No Social Vehicle'
+                                break
+                        else:
+                            no_social_vehicle_count = 0
+                            
+                        if end_of_lane_flag:
+                            result = 'End of Lane'
+                            break
+                        
+                    agent.__del__()
+                    # out of while
+                    
+                if len(drive_test.data.collision_frame) != 0:
+                    if(drive_test.data.collision_frame[0][1] == 'backward'):
+                        result = 'Backward Collision'
+                    else:
+                        result = 'Collision'
+                elif abs(timestamp - max_episode_steps) <= 1:
+                    result = 'Over'
+                else:                   
                     result = 'Break at {}'.format(timestamp)
-                drive_test.data.collision_frame.append([timestamp, 'Break'])
-            if result != 'Break':
+                    drive_test.data.collision_frame.append([timestamp, 'Break'])
+                   
+                
+                # TODO: 通过数据获得仿真中是否发生了社会车变道
+                # 判断 drive_test.data.social_dict 中的车辆是否发生了变道——根据车辆y坐标变化（），或者根据地图，判断车辆车道是否改变过
+                
+                with 1: # 参考
+                    frame = 0
+                    car_id = 1
+                    drive_test.data.social_dict[frame][car_id].y
+                    drive_test.data.social_dict[frame][car_id].lane_id
+
+                vehicle_lane_change_flag = 
                 
                 
-                drive_test.data.state_str = ''
+                if not vehicle_lane_change_flag:
+                    print(f"not asving, ", end='')    
+                elif result == 'No Social Vehicle':
+                    print(f"not asving, ", end='')
+                else:
+                    drive_test.data.state_str = ''
+                    drive_test.save_scene(result, timestamp)
+                    print(f"saving {saving_count}th, ", end='')    
+                    pbar.update(1)
+                    saving_count += 1
                 
-                drive_test.save_scene(result, timestamp)
                 print("scene {}th over, result: ".format(scene_number) + result)
+                    
                 
-            if scene_count == 5:
-                fail_list.append(scene_number)
-                drive_test.add_info_dict_failed()
+            env.close()
     
+        
     drive_test.save_to_excel()
     rospy.signal_shutdown("closed!")
     
@@ -292,7 +267,7 @@ if __name__ == "__main__":
                 data_dict = pickle.load(f)
             # with contextlib.redirect_stdout(None):
             log_reader = ReadLog(data_dict)
-            log_reader.record_video("HAstar cv", log_path, files[i])
+            log_reader.record_video("SMARTS", log_path, files[i])
             
         print("test over, all time cost: {:.1f}s".format((time.time() - test_start_time)))
         

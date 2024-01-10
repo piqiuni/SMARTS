@@ -4,7 +4,7 @@ Setup:
 ## Running
 
 1. `cd ~/2-ldl/SMARTS`
-2. `source.venv/bin/activate`
+2. `source .venv/bin/activate`
 
 ## TODO
 

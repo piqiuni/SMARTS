@@ -218,7 +218,8 @@ class CSTSAgent(Agent):
                     this_lane.lane_to_right[0])
             msg.length = this_lane.length
             msg.width = this_lane.width_at_offset(0)[0]
-            msg.speed_limit = this_lane.speed_limit
+            # msg.speed_limit = this_lane.speed_limit
+            msg.speed_limit = 17.0
             for s in np.arange(0, this_lane.length, 0.5):
                 waypt = this_lane.from_lane_coord(RefLinePoint(s))
                 msg.waypoints.append(Vector3(waypt.x, waypt.y, waypt.z))
@@ -257,7 +258,8 @@ class CSTSAgent(Agent):
         for map_lane in lanes:
             msg = lane()
             msg.lane_id = msg_id
-            msg.speed_limit = map_lane.speed_limit
+            # msg.speed_limit = map_lane.speed_limit
+            msg.speed_limit = 18.0
             msg.width = 3
             ego_lane_coord = map_lane.to_lane_coord(Point(ego.position[0], ego.position[1]))
             lane_list = [map_lane]
