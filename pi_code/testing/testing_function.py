@@ -6,6 +6,7 @@ import math
 import os
 import pickle
 from re import S
+import sys
 import pandas as pd
 import time
 from typing import Dict, List, Tuple
@@ -16,9 +17,11 @@ from matplotlib.gridspec import GridSpec
 from matplotlib.patches import Ellipse
 import numpy as np
 from shapely.geometry import Polygon
-import rosbag
-from simulator.decode_utils import FrameControlButton
-from simulator.ref_path import Ref_path
+
+from pathlib import Path
+SMARTS_REPO_PATH = Path(__file__).parents[1].absolute()
+sys.path.insert(0, str(SMARTS_REPO_PATH))
+from csts_agent.ref_path import Ref_path
 import matplotlib.colors as colors
 
 # class ModelState:
@@ -48,7 +51,7 @@ class Prediction(object):
             self.pred_prob.append(prob)
 
 class Car_Struct(object):
-    def __init__(self, id, car_type, x, y, yaw, v, a, j, length, width, lane_id=-1, spline_id=-1):
+    def __init__(self, id, car_type, x, y, yaw, v, a, j, length, width, lane_id=-1, lane_id_str = '', spline_id=-1):
         self.id = id
         self.type = car_type
         self.x = x
@@ -60,7 +63,11 @@ class Car_Struct(object):
         self.length = length
         self.width = width
         self.lane_id = lane_id
+        self.lane_id_str = lane_id_str
         self.spline_id = spline_id
+        self.prediction = Prediction()
+        
+    def __init__(self):
         self.prediction = Prediction()
     
     def add_pred(self, paths, probs):
@@ -350,7 +357,8 @@ class ReadLog(object):
         # print(len(self.data.ego_speed), len(self.data.ego_dict))
         self.mean_speed = np.mean(list(self.data.ego_speed.values()))
         self.max_speed = max(np.abs(list(self.data.ego_speed.values())))
-        self.max_acc = max(np.abs(list(self.data.ego_acc.values())))
+        self.max_acc = max(list(self.data.ego_acc.values()))
+        self.max_dec = min(list(self.data.ego_acc.values()))
         self.get_collision()
         self.get_stop_time()
         self.info_str = self.get_info()
@@ -373,8 +381,8 @@ class ReadLog(object):
         
         print("scene name:{}, result:{}, collision times:{}".format(self.data.scene_name, \
             self.data.result, len(self.data.collision_frame)))
-        print("average speed:{:.1f}, max speed:{:.1f}, max acceleration:{:.1f}, max jerk:{:.1f}".format(self.mean_speed, \
-                self.max_speed, self.max_acc, self.max_acc))
+        print("average speed:{:.1f}, max speed:{:.1f}, max acc:{:.1f}, max dec:{:.1f}".format(self.mean_speed, \
+                self.max_speed, self.max_acc, self.max_dec))
         # print("average decision time:{:.1f}ms".format(np.mean(self.data.decision_time_ms)))
         
         info_str = "Collision:" + str(self.is_collision)
@@ -549,17 +557,37 @@ class ReadLog(object):
         
         first_frame = list(self.data.ego_dict.keys())[0]
         max_frame = list(self.data.ego_dict.keys())[-1]
+        # print(video_path)
+        
+        # lane_change
+        car_id_lane_id_dict: Dict[int, set] = {}
+        for frame in sorted(self.data.social_dict.keys()):
+            this_frame = self.data.social_dict[frame]
+            for car_id in sorted(this_frame.keys()):
+                pass
+                if car_id in car_id_lane_id_dict:
+                    car_id_lane_id_dict[car_id].add(this_frame[car_id].lane_id_str)
+                    # print(f"car_id:f{car_id}, 1:{car_id_lane_id_dict[car_id]}, 2:{this_frame[car_id].lane_id_str}")
+                else:
+                    car_id_lane_id_dict[car_id] = set()
+                    car_id_lane_id_dict[car_id].add(this_frame[car_id].lane_id_str)
+        social_ids_v_a:Dict[int, Tuple[List, List]] = {}
+        for obj, value in car_id_lane_id_dict.items():
+            if len(value) > 1:
+                social_ids_v_a[obj] = ([],[])
+        
+        
         with writer.saving(self.fig, video_path, 300):
             for i in range(first_frame, max_frame):
                 percentage = int(100*(i-first_frame)/(max_frame - first_frame))
                 self.ax1.set_title("{}\ntime(ms) = {} / {} ({}%)".format(self.data.scene_name, (i)*100, self.data.max_frame*100, percentage))
                 self.draw_ego(i)
                 self.draw_path(i)
-                self.draw_socials(i)
-                self.draw_v_a(i-first_frame)
+                self.draw_socials(i, False, True)
+                social_ids_v_a = self.draw_v_a(i-first_frame, social_ids_v_a)
                 self.draw_planned_v_a(i)
                 self.fig.canvas.draw()
-                plt.pause(0.01)
+                # plt.pause(0.01)
                 writer.grab_frame()
                 # print()
             plt.close()
@@ -585,6 +613,7 @@ class ReadLog(object):
         
         first_frame = list(self.data.ego_dict.keys())[0]
         max_frame = list(self.data.ego_dict.keys())[-1]
+        print(video_path)
         with writer.saving(self.fig, video_path, 300):
             for i in range(first_frame, max_frame):
                 percentage = int(100*(i-first_frame)/(max_frame - first_frame))
@@ -605,10 +634,10 @@ class ReadLog(object):
     def draw_lane(self, draw_edge = True):
             
         for id, value in self.data.lane_dict.items():
-            # print(value)
+            # print(id, value)
             # xy_list = [(pt['route_point_x_relative'], pt['route_point_y_relative']) for pt in value]
             x ,y = list(zip(*value))
-            self.lane_spline[id] = Ref_path(value)
+            self.lane_spline[id] = Ref_path(id, value)
             left_edge = []
             right_edge = []
             lane_width = 3.5
@@ -685,7 +714,7 @@ class ReadLog(object):
             for scatter in self.pred_dict[key]:
                 scatter.remove()
             self.pred_dict.pop(key)
-        print(f"len: {len(self.data.social_dict[i])}")
+        # print(f"len: {len(self.data.social_dict[i])}")
         # print(f"len: {(self.data.social_dict[i])}")
         
         for key, state in self.data.social_dict[i].items():
@@ -714,7 +743,6 @@ class ReadLog(object):
                    
             self.ax1.add_patch(rect)
             self.patches_dict[key] = rect
-            draw_id = False
             if draw_id:
                 self.text_dict[key] = self.ax1.text(state.x, state.y, \
                     str(key), fontsize=8, horizontalalignment='center', zorder=30)
@@ -751,33 +779,59 @@ class ReadLog(object):
             self.pred_dict[key] = pred
                     
             
-    def draw_v_a(self, i):
+    def draw_v_a(self, i, social_ids_v_a:Dict[int, Tuple[List, List]]):
+        if i ==0:
+            return social_ids_v_a
         t_list = np.arange(i) / 10
         speed_list = list(self.data.ego_speed.values())[0:i]
         acc_list = list(self.data.ego_acc.values())[0:i]
         self.ax2.clear()
-        self.ax2.plot(t_list, speed_list, label='speed')
+        self.ax2.plot(t_list, speed_list, label='ego')
         self.ax2.set_xlabel('time')
         self.ax2.set_ylabel('speed')
-        self.ax2.legend()
+        # self.ax2.legend()
         if speed_list != []:
-            self.ax2.set_ylim(0, self.max_speed+1)
+            self.ax2.set_ylim(0, self.max_speed+3)
         self.ax2.set_title('Ego Speed  max={:.1f}'.format(self.max_speed))
         
         self.ax3.clear()
         self.ax3.plot(t_list, acc_list, label='acceleration')
         self.ax3.set_xlabel('time')
         self.ax3.set_ylabel('acc')
-        self.ax3.set_ylim(-3,3)
+        self.ax3.set_ylim(-4,3)
+        # self.ax3.legend()
+        self.ax3.set_title('Ego Max acc:{:.1f}, dec:{:.1f}'.format(self.max_acc, self.max_dec))
+        
+        
+        for obj, value in social_ids_v_a.items():
+            if obj in self.data.social_dict[i].keys():
+                value[0].append(self.data.social_dict[i][obj].v)
+                value[1].append(self.data.social_dict[i][obj].a)
+            else:
+                if(len(value[0]) > 0):
+                    value[0].append(value[0][-1])
+                    value[1].append(value[1][-1])
+                else:
+                    value[0].append(0)
+                    value[1].append(0)
+        
+            # print(t_list, len(t_list), len(value[0]), len(value[1]))
+            self.ax2.plot(t_list, value[0], label=f'{obj}')
+            self.ax3.plot(t_list, value[1], label=f'{obj}')
+            
+        self.ax2.legend()
         self.ax3.legend()
-        self.ax3.set_title('Ego Acceleration  max={:.1f}'.format(self.max_acc))
+        return social_ids_v_a
+            
+        
+        
         pass
     
     def draw_planned_v_a(self, i):
         if not self.data.planning_path_dict[i]:
             return
-        if len(self.data.planning_path_dict[i][0]) == 5:
-            return
+        # if len(self.data.planning_path_dict[i][0]) == 5:
+        #     return
         # t_list = np.arange(0, 5.1, 0.1)
         x,y,t,yaw,v,a = list(zip(*self.data.planning_path_dict[i]))
         self.ax4.clear()

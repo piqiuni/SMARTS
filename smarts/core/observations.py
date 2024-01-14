@@ -55,6 +55,7 @@ class VehicleObservation(NamedTuple):
     See the Reference Line coordinate system in OpenDRIVE here: https://www.asam.net/index.php?eID=dumpFile&t=f&f=4089&token=deea5d707e2d0edeeb4fccd544a973de4bc46a09#_coordinate_systems """
     interest: bool = False
     """If this vehicle is of interest in the current scenario."""
+    accel: float = 0    
 
 
 class EgoVehicleObservation(NamedTuple):

@@ -19,3 +19,9 @@ Setup:
    2. self.map_lanes_msg=self.get_map_lanes(ego, map)
    3. self.perception_prediction_msg=self.get_pp(objs, map)
 3. 变道场景
+
+
+
+relay:
+
+sudo apt install ffmpeg
