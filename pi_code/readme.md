@@ -6,6 +6,9 @@ Setup:
 1. `cd ~/2-ldl/SMARTS`
 2. `source .venv/bin/activate`
 
+## Build
+`scl scenario build-all scenarios/sumo/straight/`
+
 ## TODO
 
 1. 测试相关

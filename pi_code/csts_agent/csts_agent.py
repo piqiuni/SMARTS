@@ -21,15 +21,21 @@ from csts_msgs.msg import perception_prediction, prediction_traj, object_predict
 from geometry_msgs.msg import Vector3
 
 from collections import namedtuple
+from csts_agent.visualize import SimVisualize
 
 Pt=namedtuple("Pt", ["x", "y", "t", "yaw", "v", "a"])
 class CSTSAgent(Agent):
-    def __init__(self, init_ros=True, planning=True, roslaunch=True, stop=False):
+    def __init__(self, init_ros=True, planning=True, roslaunch=True, stop=False, vis=False):
         self.action_type = ActionSpaceType.RelativeTargetPose
         self.init_ros = init_ros
         self.stop = stop
+        self.vis = vis
         if init_ros:
             rospy.init_node('csts_agent', anonymous=True)
+        
+        if vis:
+            self.visualizer = SimVisualize("SMARTS","Cut-in")
+            self.visualizer.set_params(True, True, True, [], ['2', ])
         self.pub_perception_prediction = rospy.Publisher(
             "/map_server/perception_prediction", perception_prediction, queue_size=1)
         self.pub_ego_state = rospy.Publisher(
@@ -172,12 +178,24 @@ class CSTSAgent(Agent):
             action = self.get_action(self.ego_state_msg_sub)
         else:
             action = self.const_v_action()
-        self.timestamp += 1
         self.receive_ego_state = False
         end_time = rospy.get_time()
-        print(f"; action:({action[0]:.2f},{action[1]:.2f},{action[2]:.2f}), acc:{self.ego_state_msg_sub.ego_acc.z:.1f} timecost_ms:{(end_time-start_time)*1000:.1f}")
+        if self.planning:
+            print(f"; action:({action[0]:.2f},{action[1]:.2f},{action[2]:.2f}), acc:{self.ego_state_msg_sub.ego_acc.z:.1f} timecost_ms:{(end_time-start_time)*1000:.1f}")
+        else:
+            print(f"; action:({action[0]:.2f},{action[1]:.2f},{action[2]:.2f}) timecost_ms:{(end_time-start_time)*1000:.1f}")
+            
         self.last_ego_obs = ego
         self.last_objs_obs = new_objs
+        
+        if self.vis:
+            if not self.ego_state_msg_sub:
+                ego_ = self.ego_state_msg
+            else:
+                ego_ = self.ego_state_msg_sub
+            self.visualizer.update_plt(self.timestamp, ego_, self.perception_prediction_msg, self.map_lanes_msg, False)
+        
+        self.timestamp += 1
         return action
 
 
@@ -451,9 +469,9 @@ class CSTSAgent(Agent):
             else:
                 msg.obj_acc.z = 0
                 self.objs_obs[obj_id] = self.objs_obs[obj_id]._replace(accel=msg.obj_acc.z)
-            print(self.objs_obs[obj_id].accel)
+            # print(self.objs_obs[obj_id].accel)
             control_acc = msg.obj_acc.z
-            # print(f"id:{msg.obj_id}, acc:{control_acc}")
+            print(f"id:{msg.obj_id}, acc:{control_acc}")
             # this_lane = map.lane_by_id(self.objs_obs[obj_id].lane_id)
             this_lane = map.nearest_lane(
                 Point(self.objs_obs[obj_id].position[0], self.objs_obs[obj_id].position[1], self.objs_obs[obj_id].position[2]))

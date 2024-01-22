@@ -191,11 +191,12 @@ if __name__ == "__main__":
                      "scenarios/sumo/straight/cutin_2lane_agents_1/"]
     base_nums = [10, 10]
 
+
     testing_cases = ["scenarios/sumo/straight/3lane_cut_in_agents_1/", 
                      "scenarios/sumo/straight/cutin_2lane_agents_1/"]
     testing_nums = [10, 10]
-    start_seed = 100
-    save_senario_num = 1
+    start_seed = 20
+    save_senario_num = 10
     
     parser = minimal_argument_parser(Path(__file__).stem)
     max_episode_steps = 200
@@ -228,11 +229,12 @@ if __name__ == "__main__":
             scene_name = case.split('/')[-2]
             scene_number = 0
             for episode in episodes(n=num_episodes):
+                scene_number += 1
                 timestamp = 0
                 observation, _ = env.reset()
                 episode.record_scenario(env.unwrapped.scenario_log)
                 agent = CSTSAgent(False, True, True)
-                drive_test.new_scene(saving_count, scene_name, 0, max_episode_steps, )  
+                drive_test.new_scene(saving_count, scene_name, 0, max_episode_steps, 0, seed, scene_number-1)  
                 root_path = os.path.join(drive_test.root_dir, drive_test.log_dir)
                 result = 'Break'
 

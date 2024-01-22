@@ -168,10 +168,10 @@ class Drive_Test(object):
         # self.scene_info_dict
         
     
-    def new_scene(self, scene_id, scene_name, start_frame, max_time, start_speed=0):
+    def new_scene(self, scene_id, scene_name, start_frame, max_time, start_speed=0, seed=10, number=0):
         self.data = Data_Struct()
         # time_now = time.strftime('%H-%M-%S')
-        saved_name = f"{scene_id}_t{start_frame}_v{start_speed:.1f}_{scene_name}.pkl"
+        saved_name = f"{scene_id}_s{seed}_v{number}_{scene_name}.pkl"
         self.saved_file = os.path.join(self.root_dir, self.log_dir, saved_name)
         
         self.data.scene_name = saved_name
@@ -795,7 +795,7 @@ class ReadLog(object):
         self.ax2.set_title('Ego Speed  max={:.1f}'.format(self.max_speed))
         
         self.ax3.clear()
-        self.ax3.plot(t_list, acc_list, label='acceleration')
+        self.ax3.plot(t_list, acc_list, label='ego')
         self.ax3.set_xlabel('time')
         self.ax3.set_ylabel('acc')
         self.ax3.set_ylim(-4,3)

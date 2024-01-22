@@ -43,7 +43,7 @@ normal = TrafficActor(
     speed=Distribution(sigma=0.1, mean=1.5),
     min_gap=Distribution(sigma=0, mean=1),
     lane_changing_model=SmartsLaneChangingModel(
-        cutin_prob=1, assertive=10, dogmatic=True, slow_down_after=0.5
+        cutin_prob=1, assertive=10, dogmatic=True, slow_down_after=0.5, hold_period = 3,
     ),
 )
 
