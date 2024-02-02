@@ -7,7 +7,8 @@ Setup:
 2. `source .venv/bin/activate`
 
 ## Build
-`scl scenario build-all scenarios/sumo/straight/`
+
+observation `scl scenario build-all scenarios/sumo/straight/`
 
 ## TODO
 
@@ -22,8 +23,6 @@ Setup:
    2. self.map_lanes_msg=self.get_map_lanes(ego, map)
    3. self.perception_prediction_msg=self.get_pp(objs, map)
 3. 变道场景
-
-
 
 relay:
 

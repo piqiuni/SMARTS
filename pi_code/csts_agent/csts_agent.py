@@ -13,7 +13,7 @@ from smarts.core.controllers.action_space_type import ActionSpaceType
 from smarts.core.road_map import RoadMap
 from smarts.core.sumo_road_network import SumoRoadNetwork
 from smarts.core.observations import EgoVehicleObservation, Observation, VehicleObservation
-from smarts.core.coordinates import Point, RefLinePoint
+from smarts.core.coordinates import Point, RefLinePoint, Heading
 
 import rospy
 import threading
@@ -25,11 +25,12 @@ from csts_agent.visualize import SimVisualize
 
 Pt=namedtuple("Pt", ["x", "y", "t", "yaw", "v", "a"])
 class CSTSAgent(Agent):
-    def __init__(self, init_ros=True, planning=True, roslaunch=True, stop=False, vis=False):
+    def __init__(self, init_ros=True, planning=True, roslaunch=True, stop=False, vis=False, rotate=True):
         self.action_type = ActionSpaceType.RelativeTargetPose
         self.init_ros = init_ros
         self.stop = stop
         self.vis = vis
+        self.rotate = rotate
         if init_ros:
             rospy.init_node('csts_agent', anonymous=True)
         
@@ -99,62 +100,87 @@ class CSTSAgent(Agent):
         self.ego_state_msg_sub = state
         self.receive_ego_state = True
 
+    def convert_ego_to_class(self, ego: dict):
+
+        # print(ego.keys())
+        # dict_keys(['angular_velocity', 'box', 'heading', 'lane_id', 'lane_index', 'linear_velocity', 'position', 'speed', 'steering', 'yaw_rate', 'mission', 'angular_acceleration', 'angular_jerk', 'linear_acceleration', 'linear_jerk'])
+        ego["bounding_box"] = ego.pop("box")
+        ego["id"] = 0
+        ego["road_id"] = None
+        if self.rotate:
+            ego["heading"] += np.pi/2
+        ego_speed = math.sqrt(ego["linear_velocity"][0]**2 + ego["linear_velocity"][1]**2)
+        ego["linear_velocity"][2] = ego_speed
+        # print(f"ego before:{type(ego)}", end="")
+        ego_class = EgoVehicleObservation(**ego) 
+        return ego_class
+        
+    def convert_objs_to_class(self, objs: dict):
+        objs["bounding_box"] = objs.pop("box")
+        len_objs = len(objs["bounding_box"])
+        objs["road_id"] = np.ndarray([len_objs, 1], str)
+
+        # print(f"objs before:{type(objs)}", end="")
+
+        keys = objs.keys()
+        new_objs: Dict[str, VehicleObservation] = {}
+        for i in range(len(objs["id"])):
+            id = objs["id"][i]
+            if (id == ""):
+                # print("empty")
+                continue
+            if self.rotate:
+                objs["heading"][i] += np.pi/2
+            obj = VehicleObservation(objs["id"][i], objs["position"][i], objs["bounding_box"][i], objs["heading"][i], objs["speed"][i], objs["road_id"][i], objs["lane_id"][i], objs["lane_index"][i])
+            # box = objs["bounding_box"][i]
+            # print(f"i = {i}, obj_id: {id}, box: {box}, type: {type(obj)}")
+            new_objs[id] = obj
+        return new_objs
+
     def act(self, obs, map: RoadMap):
         print(f"timestamp: {self.timestamp}", end="")
         start_time = rospy.get_time()
         # print(obs.keys(), )
         # dict_keys(['active', 'steps_completed', 'distance_travelled', 'ego_vehicle_state', 'events', 'drivable_area_grid_map', 'lidar_point_cloud', 'neighborhood_vehicle_states', 'occupancy_grid_map', 'top_down_rgb', 'waypoint_paths', 'signals'])
 
-        ego = obs.get("ego_vehicle_state")
-        if not ego:
-            pass
-        else:
-            # print(ego.keys())
-            # dict_keys(['angular_velocity', 'box', 'heading', 'lane_id', 'lane_index', 'linear_velocity', 'position', 'speed', 'steering', 'yaw_rate', 'mission', 'angular_acceleration', 'angular_jerk', 'linear_acceleration', 'linear_jerk'])
-            ego["bounding_box"] = ego.pop("box")
-            ego["id"] = 0
-            ego["road_id"] = None
-            ego["heading"] += np.pi/2
-            ego_speed = math.sqrt(ego["linear_velocity"][0]**2 + ego["linear_velocity"][1]**2)
-            ego["linear_velocity"][2] = ego_speed
-            # print(f"ego before:{type(ego)}", end="")
-            ego = EgoVehicleObservation(**ego) 
+        if isinstance(obs, Observation):
+            ego = obs.ego_vehicle_state
+            if self.rotate:
+                new_h = Heading(ego.heading + np.pi/2)
+                ego = ego._replace(heading=new_h)
             
-        objs = obs.get("neighborhood_vehicle_states")
-        if not objs:
-            pass
-        else:
-            # print(objs.keys())
-            # dict_keys(['box', 'heading', 'id', 'interest', 'lane_id', 'lane_index', 'position', 'speed'])
-            objs["bounding_box"] = objs.pop("box")
-            len_objs = len(objs["bounding_box"])
-            # print(len(objs["bounding_box"]), type(objs["bounding_box"]))
-            objs["road_id"] = np.ndarray([len_objs, 1], str)
-
-            # print(f"objs before:{type(objs)}", end="")
-
-            keys = objs.keys()
-            new_objs: Dict[str, VehicleObservation] = {}
-            for i in range(len(objs["id"])):
-                id = objs["id"][i]
-                if (id == ""):
-                    # print("empty")
-                    continue
-                objs["heading"][i] += np.pi/2
-                obj = VehicleObservation(objs["id"][i], objs["position"][i], objs["bounding_box"][i], objs["heading"][i], objs["speed"][i], objs["road_id"][i], objs["lane_id"][i], objs["lane_index"][i])
-                # box = objs["bounding_box"][i]
-                # print(f"i = {i}, obj_id: {id}, box: {box}, type: {type(obj)}")
-                new_objs[id] = obj
-
-            # objs = VehicleObservation(**new_objs)
-            # print(f"after={type(objs)}")
-            # raise
+            objs = obs.neighborhood_vehicle_states
+            obj_dict = {}
+            for obj in objs:
+                if self.rotate:
+                    new_h = Heading(obj.heading + np.pi/2)
+                    obj = obj._replace(heading=new_h)
+                obj_dict[obj.id] = obj
+                    
+            objs = obj_dict
+        elif isinstance(obs, dict):
+            ego = obs.get("ego_vehicle_state")
+            if ego:
+                ego = self.convert_ego_to_class(ego)
             
+            objs = obs.get("neighborhood_vehicle_states")
+            if objs:
+                objs = self.convert_objs_to_class(objs)
+                
+        # if self.timestamp == 0:
+        #     linear_v = ego.linear_velocity
+        #     new_v = linear_v * 0.8
+        #     ego = ego._replace(linear_velocity=new_v)
+        
         self.ego_obs = ego
-        self.objs_obs = new_objs
+        self.objs_obs = objs
         self.ego_state_msg = self.get_ego_state(map)
-        self.map_lanes_msg = self.get_map_lanes(map)
+        if self.timestamp == 0 or True:        
+            self.map_lanes_msg = self.get_map_lanes(map)
+        # print(self.map_lanes_msg.lanes)
+        # raise
         self.perception_prediction_msg = self.get_pp(map)
+        # print("out")
 
         self.publish_all()
         # raise
@@ -186,7 +212,7 @@ class CSTSAgent(Agent):
             print(f"; action:({action[0]:.2f},{action[1]:.2f},{action[2]:.2f}) timecost_ms:{(end_time-start_time)*1000:.1f}")
             
         self.last_ego_obs = ego
-        self.last_objs_obs = new_objs
+        self.last_objs_obs = objs
         
         if self.vis:
             if not self.ego_state_msg_sub:
@@ -313,6 +339,8 @@ class CSTSAgent(Agent):
                 if s > sum(length_list[:index+1]):
                     index += 1
                 # print(s, sum(length_list[:index]), index, forward_distance)
+                if index > lane_list.__len__()-1:
+                    break
                 waypt = lane_list[index].from_lane_coord(RefLinePoint(s-sum(length_list[:index])))
                 way_pt_list.append(waypt)
                 vector3_list.append(Vector3(waypt.x, waypt.y, waypt.z))
@@ -471,7 +499,7 @@ class CSTSAgent(Agent):
                 self.objs_obs[obj_id] = self.objs_obs[obj_id]._replace(accel=msg.obj_acc.z)
             # print(self.objs_obs[obj_id].accel)
             control_acc = msg.obj_acc.z
-            print(f"id:{msg.obj_id}, acc:{control_acc}")
+            # print(f"id:{msg.obj_id}, acc:{control_acc}")
             # this_lane = map.lane_by_id(self.objs_obs[obj_id].lane_id)
             this_lane = map.nearest_lane(
                 Point(self.objs_obs[obj_id].position[0], self.objs_obs[obj_id].position[1], self.objs_obs[obj_id].position[2]))

@@ -92,7 +92,7 @@ for name, routes in enumerate(route_comb):
     )
 
 route = Route(begin=("E8", 0, 5), end=("E5", 1, "max"))
-default_speed = 13
+default_speed = 10 #13
 route_length = 100
 duration = (route_length / default_speed) * 2
 ego_missions = [

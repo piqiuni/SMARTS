@@ -35,33 +35,17 @@ def main(scenarios, headless, num_episodes, max_episode_steps=None):
         max_episode_steps=max_episode_steps, 
     )
     
-    scenarios = [
-                "scenarios/sumo/intersections/1_to_3lane_left_turn_middle_lane_c_agents_1", 
-                "scenarios/sumo/intersections/1_to_3lane_left_turn_sumo_c_agents_1",
-                "scenarios/sumo/straight/merge_exit_sumo_t_agents_1",
+    scenarios = ["scenarios/sumo/straight/3lane_overtake_agents_1", 
+                "scenarios/sumo/straight/3lane_cut_in_agents_1", 
+                "scenarios/sumo/straight/3lane_cruise_agents_1",
+                "scenarios/sumo/merge/3lane_agents_1",
                 ]
-    
-    # argoverses = [
-    #             "scenarios/argoverse/straight/0a53dd99-2946-4b4d-ab66-c4d6fef97be2_agents_1",
-    #             "scenarios/argoverse/straight/0a576bf1-66ae-495a-9c87-236f3fc2aa01_agents_1",
-    #             "scenarios/argoverse/straight/00a445fb-7293-4be6-adbc-e30c949b6cf7_agents_1",
-    #             "scenarios/argoverse/vehicle_following/ffd10ec2-715b-48af-a89d-b11f79927f63_agents_1",
-    #             "scenarios/argoverse/vehicle_following/ff6dc43b-dd27-4fe4-94b6-5c1b3940daed_agents_1",
-    #             "scenarios/argoverse/vehicle_following/ff239c9d-e4ff-4acc-bad5-bd55648c212e_0_agents_1",
-    #             "scenarios/argoverse/vehicle_following/ff239c9d-e4ff-4acc-bad5-bd55648c212e_agents_1",
-    #             "scenarios/argoverse/vehicle_following/ff9619b5-b0c0-4942-b5d8-df6a5814f8a2_agents_1",
-    #             "scenarios/argoverse/turn/00b15e74-04a8-4bd4-9a78-eb24f0c0a980_agents_1",
-    #             "scenarios/argoverse/turn/0a60b442-56b0-46c3-be45-cf166a182b67_agents_1",
-    #             "scenarios/argoverse/turn/0bf054e3-7698-4b86-9c98-626df2dee9f4_agents_1",
-    #             "scenarios/argoverse/turn/0a764a82-b44e-481e-97e7-05e1f1f925f6_agents_1",
-    #             ]
-    
     # scenarios = ["scenarios/sumo/straight/3lane_cut_in_agents_1/", 
     #             "scenarios/sumo/straight/cutin_2lane_agents_1/"]
 
-    env = driving_smarts_2023_env(
-        scenario=scenarios[0],
-        seed = 3, # 31, 35, 54, 66
+    env = driving_smarts_2022_env(
+        scenario=scenarios[2],
+        seed = 13, # 31, 35, 54, 66
         
         # scenario=scenarios[1],
         # seed = 319, # 319, 
@@ -104,7 +88,7 @@ if __name__ == "__main__":
             # str(SMARTS_REPO_PATH / "scenarios" / "sumo" / "loop"),
             # str(SMARTS_REPO_PATH / "scenarios" / "sumo" / "figure_eight"),
         ]
-    args.max_episode_steps = 500
+    args.max_episode_steps = 200
     args.episodes = 1
 
     build_scenarios(scenarios=args.scenarios)
